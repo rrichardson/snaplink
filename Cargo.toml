@@ -10,11 +10,18 @@ name = "snaplink"
 path = "src/bin/main.rs"
 
 [dependencies]
-progenitor-client = { path="../progenitor/progenitor-client" }
-reqwest = "0.11.10"
+async-trait = "^0.1"
+axum = "^0.5"
+progenitor-client = "^0.1"
+reqwest = "^0.11"
 serde = { version="^1.0", features=["derive"] }
-serde_json = "1.0.81"
+serde_json = "^1.0"
+tokio = { version = "^1.18", features=["rt", "rt-multi-thread", "macros"] }
+tracing = "^0.1"
+tracing-subscriber = { version="^0.3", features=["registry", "std", "env-filter"] }
+ulid = { version="^0.5", features=["serde"] }
 
 [build-dependencies]
-progenitor = { path = "../progenitor/progenitor" }
-serde_json = "1.0.81"
+#progenitor = { path = "../progenitor/progenitor" }
+progenitor = "^0.1"
+serde_json = "^1.0"

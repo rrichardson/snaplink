@@ -3,6 +3,9 @@ use std::path::Path;
 use std::fs::{self, File};
 
 fn main() {
+    if Path::new("gen/vault_api.rs").exists() {
+        return;
+    }
     env::set_var("OUT_DIR", "gen");
     let _ = fs::create_dir("gen");
     let src = "schema/vault.json";
@@ -14,7 +17,7 @@ fn main() {
     let content = generator.generate_text(&spec).unwrap();
 
     let mut out_file = Path::new(&env::var("OUT_DIR").unwrap()).to_path_buf();
-    out_file.push("api.rs");
+    out_file.push("vault_api.rs");
 
     fs::write(out_file, content).unwrap();
 }
