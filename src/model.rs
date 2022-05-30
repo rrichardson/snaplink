@@ -1,18 +1,17 @@
-use ulid::Ulid;
 use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct User {
-    pub uid: Option<Ulid>,
-    pub name: String,
+    pub uid: Option<String>, 
+    pub username: String,
     pub password: String,
 }
 
 impl User {
-    pub fn new(name: &str, password: &str) -> Self {
+    pub fn new(username: &str, password: &str) -> Self {
         User {
-           uid: Some(Ulid::new()), 
-           name: name.into(),
+           uid: None,
+           username: username.into(),
            password: password.into()
         }
     }
@@ -25,15 +24,14 @@ pub struct Link {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Session {
-    pub id: Ulid, 
+pub struct ValidSession {
+    pub id: String, 
 }
-
 
 // the input to our `create_user` handler
 #[derive(Deserialize)]
 pub struct CreateUserRequest {
-    pub name: String,
+    pub username: String,
     pub password: String
 }
 

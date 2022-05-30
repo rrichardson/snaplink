@@ -1,4 +1,4 @@
-use crate::client::{Client, ClientError};
+use crate::data_source::{DataSource, DataSourceError};
 use crate::model::*;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -13,28 +13,9 @@ use axum::{
     Json, Router,
 };
 use std::net::SocketAddr;
+use tokio::signal;
 
-#[derive(Clone)]
-struct ClientWrapper (Arc<Box<dyn Client>>);
-
-#[derive(Clone)]
-struct SessionWrapper (Session, ClientWrapper);
-
-impl Deref for ClientWrapper {
-    type Target = Box<dyn Client>;
-
-    fn deref(&self) -> &Box<dyn Client> {
-        &*self.0
-    }
-}
-
-impl IntoResponse for ClientError {
-    fn into_response(self) -> axum::response::Response {
-        Response::builder().status(500).body(body::boxed(self.to_string())).unwrap()
-    }
-}
-
-pub async fn run(client: Arc<Box<dyn Client>>) {
+pub async fn run(client: Arc<Box<dyn DataSource>>) {
     // build our application with a route
     let app = Router::new()
         // `GET /` goes to `root`
@@ -52,6 +33,7 @@ pub async fn run(client: Arc<Box<dyn Client>>) {
     tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
 }
@@ -64,7 +46,7 @@ where
     type Rejection = (StatusCode, String);
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let Extension(client) = Extension::<ClientWrapper>::from_request(req)
+        let Extension(client) = Extension::<DataSourceWrapper>::from_request(req)
             .await
             .map_err(internal_error)?;
         let seskey = req.headers().get("Authorization").ok_or((StatusCode::UNAUTHORIZED, "No Authorization Header".into()))?;
@@ -74,14 +56,14 @@ where
 }
 
 #[async_trait]
-impl<B> FromRequest<B> for ClientWrapper 
+impl<B> FromRequest<B> for DataSourceWrapper 
 where
     B: Send,
 {
     type Rejection = (StatusCode, String);
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let Extension(client) = Extension::<ClientWrapper>::from_request(req)
+        let Extension(client) = Extension::<DataSourceWrapper>::from_request(req)
             .await
             .map_err(internal_error)?;
         Ok(client.clone())
@@ -96,10 +78,10 @@ async fn create_user(
     // this argument tells axum to parse the request body
     // as JSON into a `CreateUser` type
     Json(payload): Json<CreateUserRequest>,
-    client: ClientWrapper,
+    client: DataSourceWrapper,
 ) -> impl IntoResponse {
     // insert your application logic here
-    let u = User::new( payload.name.as_str(), payload.password.as_str());
+    let u = User::new( payload.username.as_str(), payload.password.as_str());
     let user = client.create_user(&u).await.unwrap();
     // this will be converted into a JSON response
     // with a status code of `201 Created`
@@ -109,7 +91,7 @@ async fn create_user(
 async fn create_link(
     Json(payload): Json<CreateLinkRequest>,
     SessionWrapper(sess, client): SessionWrapper, 
-) -> Result<impl IntoResponse, ClientError> {
+) -> Result<impl IntoResponse, DataSourceError> {
    // insert your application logic here
    let lid = client.create_link(&sess, payload.url.as_str()).await.unwrap();
    // this will be converted into a JSON response
@@ -119,8 +101,8 @@ async fn create_link(
 
 async fn login(
     Json(payload): Json<LoginRequest>,
-    client: ClientWrapper, 
-) -> Result<impl IntoResponse, ClientError> {
+    client: DataSourceWrapper, 
+) -> Result<impl IntoResponse, DataSourceError> {
     let u = User::new(payload.username.as_str(), payload.password.as_str());
     let user = client.create_user(&u).await?;
     // this will be converted into a JSON response
@@ -130,8 +112,8 @@ async fn login(
 
 async fn fetch_link(
     Path(lid): Path<String>,
-    client: ClientWrapper, 
-) -> Result<impl IntoResponse, ClientError> {
+    client: DataSourceWrapper, 
+) -> Result<impl IntoResponse, DataSourceError> {
     let link = client.unwrap_link(lid.as_str()).await?;
     // this will be converted into a JSON response
     // with a status code of `201 Created`
@@ -143,4 +125,46 @@ where
     E: std::error::Error,
 {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+}
+
+#[derive(Clone)]
+struct DataSourceWrapper (Arc<Box<dyn DataSource>>);
+
+#[derive(Clone)]
+struct SessionWrapper (ValidSession, DataSourceWrapper);
+
+impl Deref for DataSourceWrapper {
+    type Target = Box<dyn DataSource>;
+
+    fn deref(&self) -> &Box<dyn DataSource> {
+        &*self.0
+    }
+}
+
+impl IntoResponse for DataSourceError {
+    fn into_response(self) -> axum::response::Response {
+        Response::builder().status(500).body(body::boxed(self.to_string())).unwrap()
+    }
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    println!("signal received, starting graceful shutdown");
 }
