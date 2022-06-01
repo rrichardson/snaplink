@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use ulid::Ulid;
 use async_trait::async_trait;
-use tokio::sync::Mutex; 
+use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() {
@@ -19,7 +19,7 @@ async fn main() {
     .with(tracing_subscriber::fmt::layer())
     .init();
 
-    let client = MemDb::new(); 
+    let client = MemDb::new();
     service::run(Arc::new(Box::new(client))).await;
 }
 
@@ -54,7 +54,7 @@ impl DataSource for MemDb {
             ..user.clone()
         };
         let mut guard = self.inner.lock().await;
-        guard.users.insert(u.username.clone(), u.clone()); 
+        guard.users.insert(u.username.clone(), u.clone());
         Ok(u)
     }
 
@@ -96,12 +96,14 @@ impl DataSource for MemDb {
         Ok(sess.to_owned())
     }
     async fn login(&self, user: &m::User)  -> DataResult<m::ValidSession> {
-        let guard = self.inner.lock().await;
+        let mut guard = self.inner.lock().await;
         let usr = guard.users.get(&user.username).ok_or(DataSourceError::Unauthorized("user not found".into()))?;
         if user.password != usr.password {
             return Err(DataSourceError::Unauthorized("password incorrect".into()));
         }
-        let sess = m::ValidSession { id: Ulid::new().to_string() };
+        let sessid = Ulid::new();
+        let sess = m::ValidSession { id: sessid.to_string() };
+        guard.sessions.insert(sessid, sess.clone());
         Ok(sess)
     }
 }

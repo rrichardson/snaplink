@@ -16,16 +16,15 @@ use std::net::SocketAddr;
 use tokio::signal;
 
 pub async fn run(client: Arc<Box<dyn DataSource>>) {
+    let wrapper = DataSourceWrapper(client);
     // build our application with a route
     let app = Router::new()
-        // `GET /` goes to `root`
         .route("/", get(root))
-        // `POST /users` goes to `create_user`
         .route("/users", post(create_user))
         .route("/login", post(login))
         .route("/link", post(create_link))
         .route("/link/:lid", get(fetch_link))
-        .layer(Extension(client));
+        .layer(Extension(wrapper));
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
@@ -39,9 +38,9 @@ pub async fn run(client: Arc<Box<dyn DataSource>>) {
 }
 
 #[async_trait]
-impl<B> FromRequest<B> for SessionWrapper 
+impl<B> FromRequest<B> for SessionWrapper
 where
-    B: Send 
+    B: Send
 {
     type Rejection = (StatusCode, String);
 
@@ -50,13 +49,14 @@ where
             .await
             .map_err(internal_error)?;
         let seskey = req.headers().get("Authorization").ok_or((StatusCode::UNAUTHORIZED, "No Authorization Header".into()))?;
+        println!("seskey from hdr: {:?}", seskey);
         let session = client.validate_session(seskey.to_str().unwrap()).await.map_err(|err| (StatusCode::UNAUTHORIZED, err.to_string()))?;
         Ok(SessionWrapper(session, client.clone()))
     }
 }
 
 #[async_trait]
-impl<B> FromRequest<B> for DataSourceWrapper 
+impl<B> FromRequest<B> for DataSourceWrapper
 where
     B: Send,
 {
@@ -90,7 +90,7 @@ async fn create_user(
 
 async fn create_link(
     Json(payload): Json<CreateLinkRequest>,
-    SessionWrapper(sess, client): SessionWrapper, 
+    SessionWrapper(sess, client): SessionWrapper,
 ) -> Result<impl IntoResponse, DataSourceError> {
    // insert your application logic here
    let lid = client.create_link(&sess, payload.url.as_str()).await.unwrap();
@@ -101,18 +101,18 @@ async fn create_link(
 
 async fn login(
     Json(payload): Json<LoginRequest>,
-    client: DataSourceWrapper, 
+    client: DataSourceWrapper,
 ) -> Result<impl IntoResponse, DataSourceError> {
     let u = User::new(payload.username.as_str(), payload.password.as_str());
-    let user = client.create_user(&u).await?;
+    let session = client.login(&u).await?;
     // this will be converted into a JSON response
     // with a status code of `201 Created`
-    Ok((StatusCode::OK, Json(user)))
+    Ok((StatusCode::OK, Json(session)))
 }
 
 async fn fetch_link(
     Path(lid): Path<String>,
-    client: DataSourceWrapper, 
+    client: DataSourceWrapper,
 ) -> Result<impl IntoResponse, DataSourceError> {
     let link = client.unwrap_link(lid.as_str()).await?;
     // this will be converted into a JSON response
